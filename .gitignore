@@ -1,0 +1,7 @@
+.env
+toolbox.exe
+__pycache__/
+*.sqlite
+*.sqlite3
+wallet/
+*.db

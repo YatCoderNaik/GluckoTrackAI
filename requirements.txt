@@ -1,0 +1,9 @@
+streamlit
+pandas
+plotly
+google-genai
+python-dotenv
+pillow
+pyTelegramBotAPI
+oracledb
+google-cloud-secret-manager
