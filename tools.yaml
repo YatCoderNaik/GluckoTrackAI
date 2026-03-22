@@ -1,0 +1,19 @@
+kind: sources
+name: my_oracle_db
+type: oracle
+user: ${DB_USER}
+password: ${DB_PASSWORD}
+connectionString: adb.ap-hyderabad-1.oraclecloud.com:1522/g6978cb8c6dbe06_glucotrack_high.adb.oraclecloud.com
+walletLocation: ${LOCAL_WALLET_DIR}
+useOCI: false
+---
+kind: tools
+name: oracle_execute_sql
+type: oracle-execute-sql
+source: my_oracle_db
+description: Execute any SQL statement against the GlucoTrack Oracle database. Use for SELECT, INSERT, UPDATE, DELETE.
+---
+kind: toolsets
+name: default
+tools:
+- oracle_execute_sql
