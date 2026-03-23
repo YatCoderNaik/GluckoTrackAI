@@ -39,6 +39,17 @@ async def ensure_session(user_id: str):
 
 async def call_agent(user_id: str, content_text: str, parts=None) -> str:
     await ensure_session(user_id)
+    # Prepend User context to help the agent know who is talking
+    user_context = f"[User ID: {user_id}] "
+    if parts:
+        # If parts exist, prepend context to the first text part or add a new one
+        if parts[0].text:
+            parts[0].text = user_context + parts[0].text
+        else:
+            parts.insert(0, types.Part(text=user_context))
+    else:
+        content_text = user_context + content_text
+
     msg = types.Content(role="user", parts=parts or [types.Part(text=content_text)])
     full_response = ""
     try:
@@ -52,7 +63,7 @@ async def call_agent(user_id: str, content_text: str, parts=None) -> str:
 @bot.message_handler(commands=['start'])
 async def send_welcome(message):
     user_id = str(message.from_user.id)
-    resp = await call_agent(user_id, f"Greet user {message.from_user.first_name} warmly.")
+    resp = await call_agent(user_id, f"Greet me ({message.from_user.first_name}) warmly and tell me about my GlucoTrack dashboard.")
     await bot.reply_to(message, resp)
 
 @bot.message_handler(content_types=['photo', 'document'])
@@ -63,7 +74,7 @@ async def handle_report(message):
         mime = "image/jpeg" if message.content_type == 'photo' else message.document.mime_type
         file_info = await bot.get_file(file_id)
         data = await bot.download_file(file_info.file_path)
-        parts = [types.Part(text="Save results from this medical report."), types.Part.from_bytes(data=data, mime_type=mime)]
+        parts = [types.Part(text="I've attached a medical report image. Please extract the diabetic readings and save them."), types.Part.from_bytes(data=data, mime_type=mime)]
         resp = await call_agent(user_id, "", parts=parts)
         await bot.reply_to(message, resp)
     except Exception as e: await bot.reply_to(message, "❌ Report processing failed.")

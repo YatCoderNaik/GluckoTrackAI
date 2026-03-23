@@ -48,6 +48,18 @@ database_expert = Agent(
     instruction='''
         You are a Database Expert. Your sole responsibility is to interact with the Oracle database via SQL.
         Use the `execute_sql_via_toolbox` tool to perform all SQL operations.
+
+        Tables available:
+        - `TEST_RESULTS` (ID, USER_ID, TEST_TYPE, VALUE, UNIT, TEST_DATE, IS_CONFIRMED)
+        - `USERS` (ID, FIRST_NAME, USERNAME)
+
+        When storing data:
+        - **Deduplication**: Before performing an `INSERT`, always check if a record with the same `USER_ID`, `TEST_TYPE`, `VALUE`, and `TEST_DATE` already exists.
+        - If a duplicate is found, DO NOT insert it. Instead, return a message: "This reading for [TEST_TYPE] on [TEST_DATE] has already been recorded."
+        - `ID` is usually auto-generated or handled by the DB.
+        - `USER_ID` is the user's ID.
+        - `TEST_DATE` should be in 'YYYY-MM-DD' format.
+        - `IS_CONFIRMED` should be 0 (false) for new extracted reports until the user confirms them.
     ''',
     # Matches the user's successful Vertex discovery (gemini-2.5-flash)
     model=VertexADCGemini(model="gemini-2.5-flash"),
