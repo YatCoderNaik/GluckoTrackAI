@@ -1,0 +1,43 @@
+# Stage 1: Download Toolbox Binary (Cached Layer)
+FROM curlimages/curl:latest AS downloader
+WORKDIR /tmp
+RUN curl -L -o toolbox https://storage.googleapis.com/genai-toolbox/v0.30.0/linux/amd64/toolbox && chmod +x toolbox
+
+# Stage 2: Runtime Image
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies (Cached Layer)
+RUN apt-get update && apt-get install -y \
+    libaio1t64 \
+    unzip \
+    dos2unix \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Toolbox (Cached Layer)
+COPY --from=downloader /tmp/toolbox /usr/local/bin/toolbox
+
+# Copy and install requirements (Cached Layer)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# --- ONLY STEPS BELOW THIS LINE WILL RERUN ON CODE CHANGES ---
+
+# Copy application code
+COPY . .
+
+# Fix line endings and permissions
+RUN dos2unix /app/start.sh && chmod +x /app/start.sh
+
+# Create directory for wallet
+RUN mkdir -p /app/wallet
+
+# Environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8080
+ENV LOCAL_WALLET_DIR=/app/wallet
+
+EXPOSE 8080
+
+CMD ["/app/start.sh"]

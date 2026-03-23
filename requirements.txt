@@ -7,3 +7,5 @@ pillow
 pyTelegramBotAPI
 oracledb
 google-cloud-secret-manager
+aiohttp
+google-adk
