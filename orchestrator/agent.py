@@ -2,7 +2,6 @@ import os
 import asyncio
 import sys
 from datetime import datetime
-from functools import cached_property
 from dotenv import load_dotenv
 from google.adk import Agent, Runner
 from google.adk.sessions import InMemorySessionService
@@ -23,11 +22,12 @@ os.environ.pop("GEMINI_API_KEY", None)
 PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "ai-agent-486314")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "asia-south1")
 
-# --- Optimized Vertex ADC Model class ---
+# --- Vertex ADC Model class ---
+# Using a plain property (not cached_property) so the Client is created fresh
+# on the current event loop each time, avoiding "Future attached to a different loop".
 class VertexADCGemini(Gemini):
-    @cached_property
+    @property
     def api_client(self) -> Client:
-        # Perfect Match to successful test script (gemini-2.5-flash @ Mumbai)
         return Client(
             vertexai=True,
             project=PROJECT,
@@ -47,14 +47,41 @@ root_agent = Agent(
         Current date: {datetime.now().strftime("%Y-%m-%d")}
         Your goal is conversational health assistance and data management.
 
+        ### Diabetic Domain Knowledge (use this to interpret user questions):
+        **Test Types & Aliases:**
+        - "sugar", "glucose", "blood sugar", "fasting sugar" → TEST_TYPE: Glucose, FBS, RBS, PPBS
+        - "hba1c", "a1c", "glycated hemoglobin" → TEST_TYPE: HbA1c
+
+        **Standard Thresholds (use when the user asks about "high", "bad", "spike", "abnormal", etc.):**
+        - Fasting Glucose (FBS): Normal < 100 mg/dL | Pre-diabetic 100–125 mg/dL | Diabetic ≥ 126 mg/dL
+        - Random/Post-meal Glucose (RBS/PPBS): Normal < 140 mg/dL | High ≥ 140 mg/dL | Spike ≥ 180 mg/dL
+        - General Glucose: treat values > 140 mg/dL as a "spike" or "bad" unless the user specifies otherwise
+        - HbA1c: Normal < 5.7% | Pre-diabetic 5.7–6.4% | Diabetic ≥ 6.5%
+
+        When the user asks vague questions like "bad sugar spike" or "worst month", apply these thresholds automatically.
+        Fetch the data from the database first, then analyze it using the thresholds above. Do NOT ask the user to define thresholds.
+
         ### Operational Guidelines:
         1. **Medical Report Extraction**: When you receive an image/PDF or text described as a "medical report":
            - Use your vision capabilities to extract diabetic readings (HbA1c, Glucose/Sugar levels like FBS, PPBS, RBS, etc.).
            - Extract: Test Type, Value, Unit, and Test Date (if date is missing, use {datetime.now().strftime("%Y-%m-%d")}).
            - Once extracted, CALL the `database_expert` tool to save these readings for the [User ID] provided in the prompt.
         2. **Database Coordination**: Delegate ALL database tasks (storing, fetching history, deleting) secretly to your `database_expert` tool.
-        3. **Tone**: Be professional, encouraging, and medical-focused.
+           - When asking the database_expert for analysis, ALWAYS request aggregated/summarized data (e.g. monthly max, min, avg, count) instead of raw rows.
+           - Example: Instead of "fetch all glucose readings for 2025", ask "fetch monthly MAX, MIN, and AVG glucose values for 2025, grouped by month".
+        3. **Analysis**: When asked about trends, spikes, or patterns, ALWAYS fetch the relevant data first, then provide a clear answer with specific values, dates, and context.
+        4. **Response Formatting**:
+           - NEVER list individual daily readings. Always summarize by month or relevant period.
+           - Structure responses as a brief narrative with key highlights, e.g.:
+             "Your highest glucose spike in 2025 was in **March** (peak: 118.9 mg/dL on Mar 14). Here's a monthly summary:
+              - Jan: avg 102.3, peak 107.4 mg/dL
+              - Feb: avg 109.1, peak 112.3 mg/dL
+              ..."
+           - End with a brief health insight or encouragement based on the thresholds above.
+           - Keep responses concise — aim for a short summary paragraph plus a compact monthly/periodic breakdown, not a wall of numbers.
+        5. **Tone**: Be professional, encouraging, and medical-focused.
         - DO NOT mention delegation; just provide the final result (e.g., "I've analyzed your report and saved your HbA1c of 7.2% to your history.").
+        - DO NOT ask the user to clarify standard medical terms. Use the domain knowledge above.
     ''',
     # Matches the user's successful Vertex discovery (gemini-2.5-flash)
     model=VertexADCGemini(model="gemini-2.5-flash"),

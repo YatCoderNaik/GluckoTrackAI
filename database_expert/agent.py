@@ -1,7 +1,6 @@
 import os
 import json
 import subprocess
-from functools import cached_property
 from dotenv import load_dotenv
 from google.adk import Agent
 from google.adk.models import Gemini
@@ -19,11 +18,12 @@ os.environ.pop("GEMINI_API_KEY", None)
 PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "ai-agent-486314")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "asia-south1")
 
-# --- Optimized Vertex ADC Model class ---
+# --- Vertex ADC Model class ---
+# Using a plain property (not cached_property) so the Client is created fresh
+# on the current event loop each time, avoiding "Future attached to a different loop".
 class VertexADCGemini(Gemini):
-    @cached_property
+    @property
     def api_client(self) -> Client:
-        # Perfect Match to successful test script
         return Client(
             vertexai=True,
             project=PROJECT,
@@ -66,17 +66,30 @@ database_expert = Agent(
         You are a Database Expert. Your sole responsibility is to interact with the Oracle database via SQL.
         Use the `execute_sql_via_toolbox` tool to perform all SQL operations.
 
+        ### CRITICAL RULES:
+        - NEVER include a trailing semicolon (`;`) at the end of your SQL commands. This causes an "ORA-00933: SQL command not properly ended" error.
+        - Ensure all SQL is compatible with Oracle Database.
+        - **Case-Insensitive Filtering**: ALWAYS use `UPPER()` on text columns in WHERE clauses.
+          Example: `WHERE UPPER(TEST_TYPE) = UPPER('glucose')` instead of `WHERE TEST_TYPE = 'glucose'`.
+          This applies to TEST_TYPE, USERNAME, and any other text-based filter.
+        - **Efficient Queries**: NEVER use `SELECT *` or fetch all raw rows. ALWAYS prefer aggregation.
+          When asked about trends, spikes, highs, lows, or patterns, use GROUP BY with EXTRACT(MONTH/YEAR FROM TEST_DATE), MAX, MIN, AVG, COUNT.
+          Only return individual rows when the user explicitly asks for a detailed list or a specific date's reading, AND the expected result set is small (< 10 rows).
+          Examples:
+            - "When did glucose spike above 100?" → `SELECT EXTRACT(YEAR FROM TEST_DATE) AS YR, EXTRACT(MONTH FROM TEST_DATE) AS MO, COUNT(*) AS SPIKE_DAYS, MAX(VALUE) AS PEAK, MIN(VALUE) AS LOW, ROUND(AVG(VALUE),1) AS AVG_VAL FROM TEST_RESULTS WHERE ... AND VALUE > 100 GROUP BY EXTRACT(YEAR FROM TEST_DATE), EXTRACT(MONTH FROM TEST_DATE) ORDER BY YR, MO`
+            - "Which month had the highest glucose?" → `SELECT EXTRACT(MONTH FROM TEST_DATE) AS MO, MAX(VALUE) AS MAX_VAL FROM TEST_RESULTS WHERE ... GROUP BY EXTRACT(MONTH FROM TEST_DATE) ORDER BY MAX_VAL DESC FETCH FIRST 1 ROWS ONLY`
+            - "Average HbA1c per year?" → `SELECT EXTRACT(YEAR FROM TEST_DATE), ROUND(AVG(VALUE),1) FROM ... GROUP BY EXTRACT(YEAR FROM TEST_DATE)`
+
         Tables available:
         - `TEST_RESULTS` (ID, USER_ID, TEST_TYPE, VALUE, UNIT, TEST_DATE, IS_CONFIRMED)
         - `USERS` (ID, FIRST_NAME, USERNAME)
 
         When storing data:
-        - **Deduplication**: Before performing an `INSERT`, always check if a record with the same `USER_ID`, `TEST_TYPE`, `VALUE`, and `TEST_DATE` already exists.
-        - If a duplicate is found, DO NOT insert it. Instead, return a message: "This reading for [TEST_TYPE] on [TEST_DATE] has already been recorded."
-        - **Persistence**: After every `INSERT` or `UPDATE` operation, you MUST issue a separate `COMMIT` command via the `execute_sql_via_toolbox` tool to ensure the transaction is saved.
-        - `ID` is usually auto-generated or handled by the DB.
+        - **Deduplication**: When performing an `INSERT` (if not told otherwise), check if a record with the same `USER_ID`, `TEST_TYPE`, `VALUE`, and `TEST_DATE` already exists to avoid duplicates.
+        - **Persistence**: After every `INSERT`, `UPDATE`, or `DELETE`, you MUST issue a separate `COMMIT` command via the `execute_sql_via_toolbox` tool to ensure the transaction is saved.
+        - `ID` is handled by the DB.
         - `USER_ID` is the user's ID.
-        - `TEST_DATE` should be in 'YYYY-MM-DD' format.
+        - `TEST_DATE` should be in 'YYYY-MM-DD' format using `TO_DATE`.
         - `IS_CONFIRMED` should be 0 (false) for new extracted reports until the user confirms them.
     ''',
     # Matches the user's successful Vertex discovery (gemini-2.5-flash)
