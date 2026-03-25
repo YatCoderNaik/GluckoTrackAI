@@ -1,0 +1,5 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/ai-agent-486314/glucotrack-dashboard', '-f', 'Dockerfile.streamlit', '.']
+images:
+- 'gcr.io/ai-agent-486314/glucotrack-dashboard'
